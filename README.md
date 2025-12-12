@@ -78,3 +78,17 @@
   ```
   uv run python main.py restructure --out-dir data --cleanup-old
   ```
+# StackOverflowCollect 数据输出说明
+
+运行抓取、翻译、评估后，每个问题会在 `data/` 下生成一个目录（命名格式：`YYYYMMDD_HHMMSS_slug`），目录内常见文件含义：
+
+- `question_answer.md`：原始问答（问题正文 + 所有回答，已去除 HTML）。
+- `question_answer_translated.md`：原始问答的中文翻译。
+- `<answer_token>_answer.md`：回答模型生成的答案，文件名中的 token 来自模型名（例如 gpt-4o → `gpt4o_answer.md`，gpt-5.1 → `gpt5_answer.md`）。
+- `<eval_token>_evaluate_<answer_token>_answer.md`：评估模型对上述答案的评估输出（token 规则同上，模型名去掉符号/小数点只保留字母数字）。
+- `metadata.json`：元数据（问题 ID、链接、标签、创建时间、回答数等）。
+- `translation_raw.json`：翻译调用的原始响应，便于审计/排错。
+
+提示：
+- 如果多次使用不同模型回答或评估，会生成对应 token 的新文件；不会覆盖其他模型的结果。
+- 路径中的 token 生成规则：取模型名去掉部署后缀（`:` 之后）、去掉小数点后的部分，仅保留字母数字并转小写，若为空则使用 `model`。
