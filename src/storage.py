@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .models import Answer, Question, TranslationResult
-from .text import html_to_text
+from .utils.text import html_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -43,22 +43,20 @@ class Storage:
             ),
             encoding="utf-8",
         )
-        (topic_dir / "question.md").write_text(
-            self._format_question(question), encoding="utf-8"
-        )
-        (topic_dir / "answers.md").write_text(
-            self._format_answers(question.answers), encoding="utf-8"
+        (topic_dir / "question_answer.md").write_text(
+            self._format_question_answers(question), encoding="utf-8"
         )
         logger.info("Saved raw content to %s", topic_dir)
         return topic_dir
 
     def save_translation(self, topic_dir: Path, result: TranslationResult) -> None:
-        (topic_dir / "translated_question.md").write_text(
-            result.translated_question, encoding="utf-8"
+        (topic_dir / "question_answer_translated.md").write_text(
+            result.translated_question_answers, encoding="utf-8"
         )
-        (topic_dir / "assistant_answer.md").write_text(
-            result.assistant_answer, encoding="utf-8"
-        )
+        # We do not save gpt4o_answer.md here anymore, as it is handled by the evaluator/solver step.
+        # If the translator produced an extra answer, we ignore it or save it to a different file if needed.
+        # (topic_dir / "gpt4o_answer.md").write_text(result.gpt_answer, encoding="utf-8")
+        
         if result.raw_response is not None:
             (topic_dir / "translation_raw.json").write_text(
                 json.dumps(result.raw_response, indent=2), encoding="utf-8"
@@ -66,32 +64,32 @@ class Storage:
         logger.info("Saved translation output to %s", topic_dir)
 
     @staticmethod
-    def _format_question(question: Question) -> str:
+    def _format_question_answers(question: Question) -> str:
         header = [
             f"# {question.title}",
             f"Link: {question.link}",
             f"Created: {question.creation_date.isoformat()}",
+            f"Tags: {', '.join(question.tags)}",
             "",
-            "## Body",
+            "## Question",
             html_to_text(question.body),
             "",
+            "## Answers",
         ]
+        if question.answers:
+            for idx, answer in enumerate(question.answers, start=1):
+                header.extend(
+                    [
+                        f"### Answer {idx}",
+                        f"Accepted: {answer.is_accepted}",
+                        f"Score: {answer.score}",
+                        f"Link: {answer.link}",
+                        f"Created: {answer.creation_date.isoformat()}",
+                        "",
+                        html_to_text(answer.body),
+                        "",
+                    ]
+                )
+        else:
+            header.append("No answers retrieved.")
         return "\n".join(header)
-
-    @staticmethod
-    def _format_answers(answers: Iterable[Answer]) -> str:
-        lines = []
-        for idx, answer in enumerate(answers, start=1):
-            lines.extend(
-                [
-                    f"## Answer {idx}",
-                    f"Accepted: {answer.is_accepted}",
-                    f"Score: {answer.score}",
-                    f"Link: {answer.link}",
-                    f"Created: {answer.creation_date.isoformat()}",
-                    "",
-                    html_to_text(answer.body),
-                    "",
-                ]
-            )
-        return "\n".join(lines) if lines else "No answers retrieved."

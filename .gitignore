@@ -8,6 +8,15 @@ wheels/
 
 # Virtual environments
 .venv
+.env
 
 # data
 data/
+
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+AGENTS.md
+

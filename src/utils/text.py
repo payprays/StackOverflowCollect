@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from bs4 import BeautifulSoup
+from pathlib import Path
 
 
 def html_to_text(html: str) -> str:
@@ -19,3 +20,22 @@ def html_to_text(html: str) -> str:
     normalized = "\n".join(line.strip() for line in text.splitlines())
     normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
     return normalized
+
+
+def is_file_empty(file_path: Path) -> bool:
+    """Check if a file is empty."""
+    try:
+        return file_path.stat().st_size == 0
+    except FileNotFoundError:
+        return True
+
+
+def is_file_chinese(file_path: Path) -> bool:
+    """Check if a file contains Chinese characters."""
+    chinese_char_pattern = re.compile(r"[\u4e00-\u9fff]")
+    try:
+        with file_path.open("r", encoding="utf-8") as f:
+            content = f.read()
+            return bool(chinese_char_pattern.search(content))
+    except FileNotFoundError:
+        return False

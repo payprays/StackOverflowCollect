@@ -28,7 +28,7 @@ class Question:
 
 @dataclass
 class TranslationResult:
-    translated_question: str
-    assistant_answer: str
+    translated_question_answers: str
+    gpt_answer: str
     model: str
     raw_response: Optional[dict] = None
