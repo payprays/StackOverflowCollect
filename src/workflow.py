@@ -88,6 +88,7 @@ def run_translate(
     session: Optional[httpx.Client] = None,
     force: bool = False,
     limit: Optional[int] = None,
+    skip: int = 0,
 ) -> None:
     base = Path(out_dir)
     http_client = session or httpx.Client(timeout=httpx.Timeout(60.0))
@@ -102,7 +103,7 @@ def run_translate(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures: list[Future[None]] = []
         processed = 0
-        for topic_dir, question in load_questions_from_dir(base):
+        for topic_dir, question in load_questions_from_dir(base, skip=skip):
             if limit is not None and processed >= limit:
                 break
             if not needs_translation(topic_dir):
@@ -128,6 +129,7 @@ def run_evaluate(
     reverse: bool = False,
     limit: Optional[int] = None,
     mode: str = "answer",
+    skip: int = 0,
 ) -> None:
     base = Path(out_dir)
     http_client = session or httpx.Client(timeout=httpx.Timeout(60.0))
@@ -147,7 +149,9 @@ def run_evaluate(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures: list[Future[None]] = []
         processed = 0
-        for topic_dir, question in load_questions_from_dir(base, reverse=reverse):
+        for topic_dir, question in load_questions_from_dir(
+            base, reverse=reverse, skip=skip
+        ):
             if limit is not None and processed >= limit:
                 break
             futures.append(

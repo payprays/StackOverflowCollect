@@ -11,8 +11,11 @@ from .text import html_to_text
 logger = logging.getLogger(__name__)
 
 
-def load_questions_from_dir(base_dir: Path, reverse: bool = False) -> Iterable[tuple[Path, Question]]:
-    for topic_dir in sorted((p for p in base_dir.iterdir() if p.is_dir()), reverse=reverse):
+def load_questions_from_dir(
+    base_dir: Path, reverse: bool = False, skip: int = 0
+) -> Iterable[tuple[Path, Question]]:
+    topic_dirs = sorted((p for p in base_dir.iterdir() if p.is_dir()), reverse=reverse)
+    for topic_dir in topic_dirs[skip:]:
         question = _parse_question(topic_dir)
         if question is None:
             logger.warning("Skipping %s: missing question/answers files", topic_dir)

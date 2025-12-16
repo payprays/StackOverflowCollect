@@ -96,6 +96,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="最多处理多少个目录（按加载顺序截断）。",
     )
+    translate_parser.add_argument(
+        "--skip",
+        type=int,
+        default=0,
+        help="跳过排序后的前 N 个目录，用于配合 limit 指定区间。",
+    )
 
     # Evaluate Command
     eval_parser = subparsers.add_parser(
@@ -147,6 +153,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="最多处理多少个目录（按加载顺序截断）。",
     )
+    eval_parser.add_argument(
+        "--skip",
+        type=int,
+        default=0,
+        help="跳过排序后的前 N 个目录，用于配合 limit 指定区间。",
+    )
 
     # Restructure Command (Legacy/Utility)
     restructure_parser = subparsers.add_parser(
@@ -190,6 +202,7 @@ def main() -> None:
             workers=args.workers,
             force=args.force,
             limit=args.limit,
+            skip=args.skip,
         )
     elif args.command == "evaluate":
         run_evaluate(
@@ -202,6 +215,7 @@ def main() -> None:
             reverse=args.reverse,
             limit=args.limit,
             mode=args.mode,
+            skip=args.skip,
         )
     elif args.command == "restructure":
         restructure_directories(args.out_dir)
