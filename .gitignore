@@ -12,7 +12,7 @@ wheels/
 
 # data
 data/
-
+result_report.md
 
 # IDE files
 .vscode/
