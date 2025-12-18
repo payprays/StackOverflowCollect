@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-from ..models import Answer, Question
+from src.core.models import Answer, Question
 from .text import html_to_text
 
 logger = logging.getLogger(__name__)
@@ -33,9 +33,13 @@ def _parse_question(topic_dir: Path) -> Question | None:
 
 def _parse_combined(path: Path, meta: dict) -> Question | None:
     lines = path.read_text(encoding="utf-8").splitlines()
-    title = lines[0].lstrip("#").strip() if lines else meta.get("title", "Unknown title")
+    title = (
+        lines[0].lstrip("#").strip() if lines else meta.get("title", "Unknown title")
+    )
     body_lines, answer_sections = _split_question_answers(lines)
-    answers = [_build_answer(sec, idx) for idx, sec in enumerate(answer_sections, start=1)]
+    answers = [
+        _build_answer(sec, idx) for idx, sec in enumerate(answer_sections, start=1)
+    ]
     return Question(
         question_id=meta.get("question_id", 0),
         title=title,
@@ -47,9 +51,6 @@ def _parse_combined(path: Path, meta: dict) -> Question | None:
     )
 
 
-
-
-
 def _split_question_answers(lines: List[str]) -> Tuple[List[str], List[List[str]]]:
     # Find the separator line index
     separator_index = -1
@@ -57,31 +58,31 @@ def _split_question_answers(lines: List[str]) -> Tuple[List[str], List[List[str]
         if line.strip().lower() == "## answers":
             separator_index = i
             break
-    
+
     if separator_index == -1:
         # No answers section, everything is question
         return lines, []
-    
+
     question_lines = lines[:separator_index]
-    answers_lines = lines[separator_index + 1:]
-    
+    answers_lines = lines[separator_index + 1 :]
+
     # Parse answers from the answers section
     answers: List[List[str]] = []
     current_answer: List[str] | None = None
-    
+
     for line in answers_lines:
         if line.strip().lower().startswith("### answer"):
             if current_answer is not None:
                 answers.append(current_answer)
             current_answer = []
             continue
-        
+
         if current_answer is not None:
             current_answer.append(line)
-            
+
     if current_answer is not None:
         answers.append(current_answer)
-        
+
     return question_lines, answers
 
 
@@ -89,7 +90,9 @@ def _build_answer(lines: List[str], idx: int) -> Answer:
     meta = {}
     body: List[str] = []
     for line in lines:
-        if ":" in line and line.lower().startswith(("accepted", "score", "link", "created")):
+        if ":" in line and line.lower().startswith(
+            ("accepted", "score", "link", "created")
+        ):
             key, _, val = line.partition(":")
             meta[key.strip().lower()] = val.strip()
         else:

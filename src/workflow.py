@@ -8,14 +8,15 @@ import json
 
 import httpx
 
-from .models import Question
-from .stack_client import StackOverflowClient
-from .storage import Storage
-from .translator import Translator
-from .evaluator import Evaluator
-from .utils.rehydrate import load_questions_from_dir
-from .utils.text import is_file_chinese, is_file_empty
-from .utils.model_name import model_token
+from src.core.models import Question
+from src.core.config import settings
+from src.services.stack_client import StackOverflowClient
+from src.services.storage import Storage
+from src.services.translator import Translator
+from src.services.evaluator import Evaluator
+from src.utils.rehydrate import load_questions_from_dir
+from src.utils.text import is_file_chinese, is_file_empty
+from src.utils.model_name import model_token
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def run_crawl(
     checkpoint_file: str | Path | None = None,
     session: Optional[httpx.Client] = None,
 ) -> None:
-    http_client = session or httpx.Client(timeout=httpx.Timeout(60.0))
+    http_client = session or httpx.Client(timeout=httpx.Timeout(60.0), http2=False)
     fetcher = StackOverflowClient(session=http_client, key=stack_key)
     store = Storage(Path(out_dir))
 
@@ -82,8 +83,8 @@ def run_crawl(
 
 def run_translate(
     out_dir: str | Path,
-    model_url: str = "http://localhost:4141",
-    api_key: str = "test-key",
+    model_url: str = settings.LOCAL_MODEL_URL,
+    api_key: str = settings.OPENAI_API_KEY or "test-key",
     workers: int = 2,
     session: Optional[httpx.Client] = None,
     force: bool = False,
@@ -91,7 +92,7 @@ def run_translate(
     skip: int = 0,
 ) -> None:
     base = Path(out_dir)
-    http_client = session or httpx.Client(timeout=httpx.Timeout(60.0))
+    http_client = session or httpx.Client(timeout=httpx.Timeout(60.0), http2=False)
     translator = Translator(base_url=model_url, api_key=api_key, session=http_client)
     store = Storage(base)
 
@@ -120,8 +121,8 @@ def run_translate(
 
 def run_evaluate(
     out_dir: str | Path,
-    model: str = "gpt-4o",
-    base_url: str = "https://api.openai.com/v1/chat/completions",
+    model: str = settings.DEFAULT_MODEL_ANSWER,
+    base_url: str = settings.OPENAI_BASE_URL,
     api_key: Optional[str] = None,
     workers: int = 2,
     session: Optional[httpx.Client] = None,
@@ -132,7 +133,7 @@ def run_evaluate(
     skip: int = 0,
 ) -> None:
     base = Path(out_dir)
-    http_client = session or httpx.Client(timeout=httpx.Timeout(60.0))
+    http_client = session or httpx.Client(timeout=httpx.Timeout(60.0), http2=False)
     evaluator = Evaluator(
         base_url=base_url,
         api_key=api_key,
@@ -218,8 +219,8 @@ def _evaluate_and_store(
         except Exception as exc:
             logger.error("Answer generation failed for %s: %s", topic_dir.name, exc)
             return
-    elif evaluator.mode == "answer":
-        logger.info("Answer already exists for %s, skipping answer", topic_dir.name)
+    # If mode is not answer (i.e. evaluate), we still need the content if it exists
+    if not gpt_answer_content and gpt_answer_path.exists():
         gpt_answer_content = gpt_answer_path.read_text(encoding="utf-8")
 
     # 2. Evaluate

@@ -7,8 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-from .models import Answer, Question, TranslationResult
-from .utils.text import html_to_text
+from src.core.models import Answer, Question, TranslationResult
+from src.utils.text import html_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class Storage:
         # We do not save gpt4o_answer.md here anymore, as it is handled by the evaluator/solver step.
         # If the translator produced an extra answer, we ignore it or save it to a different file if needed.
         # (topic_dir / "gpt4o_answer.md").write_text(result.gpt_answer, encoding="utf-8")
-        
+
         if result.raw_response is not None:
             (topic_dir / "translation_raw.json").write_text(
                 json.dumps(result.raw_response, indent=2), encoding="utf-8"

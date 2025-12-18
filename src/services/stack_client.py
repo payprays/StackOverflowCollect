@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Iterable, Iterator, List, Optional, Tuple
 
 import httpx
 
-from .models import Answer, Question
+from src.core.models import Answer, Question
 
 STACK_EXCHANGE_API = "https://api.stackexchange.com/2.3"
 
@@ -15,11 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 def _to_datetime(timestamp: int) -> datetime:
-    return datetime.utcfromtimestamp(timestamp)
+    return datetime.fromtimestamp(timestamp, UTC)
 
 
 class StackOverflowClient:
-    def __init__(self, session: httpx.Client | None = None, key: Optional[str] = None) -> None:
+    def __init__(
+        self, session: httpx.Client | None = None, key: Optional[str] = None
+    ) -> None:
         self._client = session or httpx.Client(timeout=15)
         self.key = key
 
@@ -45,7 +47,10 @@ class StackOverflowClient:
             if self.key:
                 params["key"] = self.key
             logger.info(
-                "Fetching questions page %s for tag '%s' (page_size=%s)", page, tag, page_size
+                "Fetching questions page %s for tag '%s' (page_size=%s)",
+                page,
+                tag,
+                page_size,
             )
             resp = self._client.get(f"{STACK_EXCHANGE_API}/questions", params=params)
             resp.raise_for_status()
@@ -53,7 +58,9 @@ class StackOverflowClient:
             backoff = data.get("backoff")
             quota_remaining = data.get("quota_remaining")
             if quota_remaining is not None and quota_remaining < 10:
-                logger.warning("Low Stack Exchange quota remaining: %s", quota_remaining)
+                logger.warning(
+                    "Low Stack Exchange quota remaining: %s", quota_remaining
+                )
             items = data.get("items", [])
             questions: List[Question] = []
             for item in items:

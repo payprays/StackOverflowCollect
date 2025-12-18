@@ -7,8 +7,9 @@ from typing import Iterable, Optional
 
 import httpx
 
-from .models import Answer, Question, TranslationResult
-from .utils.text import html_to_text
+from src.core.models import Answer, Question, TranslationResult
+from src.utils.text import html_to_text
+from src.prompts import TRANSLATION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,7 @@ class Translator:
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are a bilingual cloud-native expert. Translate the question and all answers to concise Chinese."
-                    ),
+                    "content": TRANSLATION_SYSTEM_PROMPT,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -69,7 +68,10 @@ class Translator:
             return re.match(r"^#+\s*翻译后问题与回答", line.strip()) is not None
 
         def is_ans_header(line: str) -> bool:
-            return re.match(r"^#+\s*gpt4o回答", line.strip(), flags=re.IGNORECASE) is not None
+            return (
+                re.match(r"^#+\s*gpt4o回答", line.strip(), flags=re.IGNORECASE)
+                is not None
+            )
 
         mode = "qa"
         for line in lines:

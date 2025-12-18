@@ -60,7 +60,9 @@ def html_to_text(html: str) -> str:
             lines: List[str] = []
             for idx, li in enumerate(node.find_all("li", recursive=False), start=1):
                 prefix = "-" if name == "ul" else f"{idx}."
-                body = "".join(render(child, indent + 2) for child in li.children).strip()
+                body = "".join(
+                    render(child, indent + 2) for child in li.children
+                ).strip()
                 lines.append(" " * indent + f"{prefix} {body}")
             return "\n".join(lines) + "\n"
         if name == "li":

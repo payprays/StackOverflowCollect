@@ -5,6 +5,7 @@ from pathlib import Path
 
 from src.workflow import run_crawl, run_translate, run_evaluate
 from src.utils.restructure import restructure_directories
+from src.core.config import settings
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     )
     crawl_parser.add_argument(
         "--stack-key",
-        default=None,
+        default=settings.STACK_API_KEY,
         help="Stack Exchange API key to increase quota.",
     )
     crawl_parser.add_argument(
@@ -73,11 +74,13 @@ def parse_args() -> argparse.Namespace:
     )
     translate_parser.add_argument(
         "--model-url",
-        default="http://localhost:4141",
+        default=settings.LOCAL_MODEL_URL,
         help="Base URL for the translation model endpoint.",
     )
     translate_parser.add_argument(
-        "--api-key", default="test-key", help="API key for translation model."
+        "--api-key",
+        default=settings.OPENAI_API_KEY or "test-key",
+        help="API key for translation model.",
     )
     translate_parser.add_argument(
         "--workers",
@@ -115,7 +118,7 @@ def parse_args() -> argparse.Namespace:
     )
     eval_parser.add_argument(
         "--model",
-        default="gpt-4o",
+        default=settings.DEFAULT_MODEL_ANSWER,
         help="Model to use for answering and evaluating.",
     )
     eval_parser.add_argument(
@@ -125,11 +128,13 @@ def parse_args() -> argparse.Namespace:
     )
     eval_parser.add_argument(
         "--base-url",
-        default="https://api.openai.com/v1/chat/completions",
+        default=settings.OPENAI_BASE_URL,
         help="Base URL for evaluation and answer generation model endpoint.",
     )
     eval_parser.add_argument(
-        "--api-key", default=None, help="API key for evaluation models."
+        "--api-key",
+        default=settings.OPENAI_API_KEY,
+        help="API key for evaluation models.",
     )
     eval_parser.add_argument(
         "--workers",
