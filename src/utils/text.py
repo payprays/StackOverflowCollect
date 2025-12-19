@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List
+from typing import List, cast
+from textwrap import dedent as dedent
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag, PageElement
 
 
 def html_to_text(html: str) -> str:
@@ -21,12 +22,17 @@ def html_to_text(html: str) -> str:
     for t in soup(["script", "style"]):
         t.decompose()
 
-    def render(node: Tag | NavigableString, indent: int = 0) -> str:
+    def render(node: PageElement | Tag | NavigableString, indent: int = 0) -> str:
         if isinstance(node, NavigableString):
             return str(node)
 
-        name = node.name
-        children_text = "".join(render(child, indent) for child in node.children)
+        name = getattr(node, "name", None)
+        # Handle case where node might not be Tag but also not NavigableString (e.g. Comment)
+        if not name: 
+            return ""
+
+        children_text = "".join(render(cast(Tag, child), indent) for child in node.children)
+
 
         if name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             level = int(name[1])

@@ -2,59 +2,61 @@ from __future__ import annotations
 
 import logging
 import re
-from textwrap import dedent
 from typing import Iterable, Optional
 
 import httpx
 
-from src.core.models import Answer, Question, TranslationResult
+from textwrap import dedent
+from src.conf.prompts import TRANSLATION_SYSTEM_PROMPT
+from src.domain.models import Answer, Question, TranslationResult
 from src.utils.text import html_to_text
-from src.prompts import TRANSLATION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
+
+from src.services.llm_client import LLMClient
 
 class Translator:
     def __init__(
         self,
         base_url: str = "http://localhost:4141",
-        api_key: str = "test-key",
+        api_key: Optional[str] = None,
         model: str = "gpt-4o",
         session: Optional[httpx.Client] = None,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
+        self.llm_client = LLMClient(
+            base_url=base_url, api_key=api_key, model=model, session=session
+        )
         self.model = model
-        self._client = session or httpx.Client(timeout=httpx.Timeout(60.0))
 
     def translate(self, question: Question) -> TranslationResult:
         prompt = self._build_prompt(question, question.answers)
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": TRANSLATION_SYSTEM_PROMPT,
-                },
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-        }
+        messages = [
+            {
+                "role": "system",
+                "content": TRANSLATION_SYSTEM_PROMPT,
+            },
+            {"role": "user", "content": prompt},
+        ]
         logger.info("Sending translation request for question %s", question.question_id)
-        resp = self._client.post(
-            f"{self.base_url}/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        message = body.get("choices", [{}])[0].get("message", {}).get("content", "")
-        translated_question_answers, gpt_answer = self._split_translations(message)
+        
+        # We need the raw response for TranslationResult? 
+        # The LLMClient only returns content string.
+        # But TranslationResult expects `raw_response`.
+        # For now, let's reconstruct a minimal raw response or adjust TranslationResult usage.
+        # Or LLMClient could return full response?
+        # Let's adjust LLMClient or just pass a simulated one?
+        # The prompt says LLMClient returns string.
+        # Let's clean up TranslationResult usage - raw_response is optional.
+        
+        content = self.llm_client.chat_completion(messages)
+        
+        translated_question_answers, gpt_answer = self._split_translations(content)
         return TranslationResult(
             translated_question_answers=translated_question_answers,
             gpt_answer=gpt_answer,
             model=self.model,
-            raw_response=body,
+            raw_response={"choices": [{"message": {"content": content}}]}, # Simulated for now
         )
 
     @staticmethod
@@ -119,3 +121,10 @@ class Translator:
             {joined_answers}
             """
         ).strip()
+
+    def translate_text(self, text: str) -> str:
+        """Translate arbitrary text to Chinese."""
+        prompt = f"Translate the following text to concise Chinese:\n\n{text}"
+        messages = [{"role": "user", "content": prompt}]
+        return self.llm_client.chat_completion(messages)
+

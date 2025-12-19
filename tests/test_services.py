@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock
-from src.services.translator import Translator
-from src.services.evaluator import Evaluator
+from src.agents.translator import Translator
+from src.agents.evaluator import Evaluator
 from src.services.storage import Storage
 
 
@@ -18,7 +18,7 @@ def test_translator_translate(sample_question, mock_httpx_client):
     }
     mock_httpx_client.post.return_value.json.return_value = mock_resp_json
 
-    translator = Translator(session=mock_httpx_client)
+    translator = Translator(session=mock_httpx_client, api_key="test-key")
     res = translator.translate(sample_question)
 
     assert res.translated_question_answers == "Question Translated"
@@ -30,7 +30,9 @@ def test_evaluator_generate_answer(mock_httpx_client):
     mock_resp_json = {"choices": [{"message": {"content": "Generated YAML"}}]}
     mock_httpx_client.post.return_value.json.return_value = mock_resp_json
 
-    evaluator = Evaluator(session=mock_httpx_client, mode="answer")
+    mock_httpx_client.post.return_value.json.return_value = mock_resp_json
+
+    evaluator = Evaluator(session=mock_httpx_client, mode="answer", api_key="test")
     ans = evaluator.generate_answer("Some context")
     assert ans == "Generated YAML"
 
@@ -41,7 +43,7 @@ def test_evaluator_evaluate(mock_httpx_client):
     }
     mock_httpx_client.post.return_value.json.return_value = mock_resp_json
 
-    evaluator = Evaluator(session=mock_httpx_client, mode="evaluate")
+    evaluator = Evaluator(session=mock_httpx_client, mode="evaluate", api_key="test")
     res = evaluator.evaluate("Q & A", "LLM Answer", "model_name")
     assert "semantic_drift" in res
 
@@ -59,7 +61,7 @@ def test_storage_save_raw(tmp_path, sample_question):
 
 
 def test_storage_save_translation(tmp_path):
-    from src.core.models import TranslationResult
+    from src.domain.models import TranslationResult
 
     store = Storage(tmp_path)
     topic_dir = tmp_path / "test_topic"

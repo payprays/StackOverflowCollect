@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime, UTC
 from unittest.mock import MagicMock
-from src.core.models import Question, Answer
+from src.domain.models import Question, Answer
 
 
 @pytest.fixture

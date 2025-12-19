@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-from src.core.models import Answer, Question
+from src.domain.models import Answer, Question
 from .text import html_to_text
 
 logger = logging.getLogger(__name__)

@@ -7,7 +7,7 @@ from typing import Iterable, Iterator, List, Optional, Tuple
 
 import httpx
 
-from src.core.models import Answer, Question
+from src.domain.models import Answer, Question
 
 STACK_EXCHANGE_API = "https://api.stackexchange.com/2.3"
 
