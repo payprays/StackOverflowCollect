@@ -41,7 +41,7 @@ class Storage:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         # Always output to CSV. Default to results.csv in base_dir if not specified.
         self.out_csv = out_csv or (base_dir / "results.csv")
-        self._csv_lock = threading.Lock()
+        self._csv_lock = threading.RLock()
         self._df: Optional[pd.DataFrame] = None
         
         self._load_or_init_csv()
