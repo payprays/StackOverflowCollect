@@ -153,8 +153,8 @@ def _translate_and_store(
     # 2. Translate Generated Answers (New behavior detached from answer command)
     # Find all *_answer.md files
     for answer_file in topic_dir.glob("*_answer.md"):
-        model_token = answer_file.stem.replace("_answer", "")
-        trans_file = topic_dir / f"{model_token}_answer_translated.md"
+        ans_token = answer_file.stem.replace("_answer", "")
+        trans_file = topic_dir / f"{ans_token}_answer_translated.md"
 
         if force or not trans_file.exists():
             content = answer_file.read_text(encoding="utf-8")
@@ -166,7 +166,7 @@ def _translate_and_store(
                 )
                 try:
                     translated = translator.translate_text(content)
-                    store.save_answer_translation(topic_dir, model_token, translated)
+                    store.save_answer_translation(topic_dir, ans_token, translated)
                 except Exception as exc:
                     logger.error(
                         "Failed to translate answer %s: %s", answer_file.name, exc
