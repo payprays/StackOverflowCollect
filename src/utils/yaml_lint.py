@@ -337,7 +337,7 @@ def lint_answer(answer_text: str) -> str:
     result = lint_yaml_blocks(
         answer_text,
         run_kubeval_check=True,
-        run_datree_check=False,  # Requires extra setup
+        run_datree_check=True,  # Enabled datree
         run_dryrun_check=True
     )
     return result.summary
@@ -359,8 +359,9 @@ def lint_answer_full(answer_text: str) -> Tuple[str, str, str]:
     result = lint_yaml_blocks(
         answer_text,
         run_kubeval_check=True,
-        run_datree_check=False,  # Requires extra setup
+        run_datree_check=True,  # Enabled datree
         run_dryrun_check=True
     )
     return result.summary, result.merged_code_blocks, result.detailed_logs
+
 

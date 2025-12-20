@@ -24,7 +24,29 @@ def load_questions_from_dir(
 
 
 def _parse_question(topic_dir: Path) -> Question | None:
-    meta = _load_metadata(topic_dir / "metadata.json")
+    meta = _load_metadata(topic_dir / "question.json")
+    
+    # Check if ID is valid (present and not 0)
+    curr_id = meta.get("id") or meta.get("question_id")
+    if not curr_id or str(curr_id) == "0":
+        # Fallback 1: Extract from Link (https://stackoverflow.com/questions/12345/...)
+        link = meta.get("link", "")
+        if "/questions/" in link:
+            try:
+                # split by /questions/ and take the next part
+                parts = link.split("/questions/")
+                if len(parts) > 1:
+                    id_part = parts[1].split("/")[0]
+                    meta["id"] = int(id_part)
+            except ValueError:
+                pass
+    
+    if meta.get("id") is None and meta.get("question_id") is None:
+        print(f"DEBUG: Failed to extract ID for {topic_dir.name}. Meta keys: {list(meta.keys())}")
+    elif meta.get("id") is not None:
+         # print(f"DEBUG: Recovered ID {meta['id']} for {topic_dir.name}")
+         pass
+    
     combined_path = topic_dir / "question_answer.md"
     if combined_path.exists():
         return _parse_combined(combined_path, meta)
@@ -41,7 +63,7 @@ def _parse_combined(path: Path, meta: dict) -> Question | None:
         _build_answer(sec, idx) for idx, sec in enumerate(answer_sections, start=1)
     ]
     return Question(
-        question_id=meta.get("question_id", 0),
+        question_id=meta.get("id") or meta.get("question_id", 0),
         title=title,
         body="\n".join(body_lines).strip(),
         creation_date=_parse_dt(meta.get("created_at")),
@@ -61,10 +83,25 @@ def _split_question_answers(lines: List[str]) -> Tuple[List[str], List[List[str]
 
     if separator_index == -1:
         # No answers section, everything is question
-        return lines, []
+        question_lines = lines
+        answers_lines = []
+    else:
+        question_lines = lines[:separator_index]
+        answers_lines = lines[separator_index + 1 :]
 
-    question_lines = lines[:separator_index]
-    answers_lines = lines[separator_index + 1 :]
+    # Clean Question Header (Fix for duplication bug)
+    # Search for "## Question" and keep content AFTER it.
+    # To handle nested duplicates, we take the LAST occurrence.
+    try:
+        # Find indices of "## Question"
+        q_header_indices = [
+            i for i, line in enumerate(question_lines) if line.strip().lower() == "## question"
+        ]
+        if q_header_indices:
+            last_header_idx = q_header_indices[-1]
+            question_lines = question_lines[last_header_idx + 1 :]
+    except Exception:
+        pass  # Fallback to full content
 
     # Parse answers from the answers section
     answers: List[List[str]] = []

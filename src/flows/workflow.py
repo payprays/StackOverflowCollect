@@ -32,6 +32,7 @@ def run_crawl(
     checkpoint_file: str | Path | None = None,
     session: Optional[httpx.Client] = None,
     output_csv: Optional[str | Path] = None,
+    force: bool = False,
 ) -> None:
     http_client = session or httpx.Client(timeout=httpx.Timeout(60.0), http2=False)
     fetcher = StackOverflowClient(session=http_client, key=stack_key)
@@ -40,7 +41,11 @@ def run_crawl(
     checkpoint_path = (
         Path(checkpoint_file) if checkpoint_file else Path(out_dir) / "checkpoint.json"
     )
-    start_page, fetched_so_far = _load_checkpoint(checkpoint_path, tag)
+    if force and checkpoint_path.exists():
+        logger.warning("Force mode mismatch: Ignoring existing checkpoint to start fresh.")
+        start_page, fetched_so_far = 1, 0
+    else:
+        start_page, fetched_so_far = _load_checkpoint(checkpoint_path, tag)
     logger.info(
         "Starting crawl for tag '%s' with limit=%s, page_size=%s, resume_page=%s, already_fetched=%s",
         tag,
@@ -291,6 +296,11 @@ def run_batch_evaluate(
             completed += 1
 
         logger.info("🏁 Evaluate complete: %d/%d items processed", completed, processed)
+        
+        # Print Coverage Summary
+        if store.out_csv:
+            _print_coverage_summary(store.out_csv, model)
+
 
 
 # Deprecated wrapper for backward compatibility if needed, but we will remove CLI usage
@@ -331,15 +341,6 @@ def _process_answer(
         should_generate = force
 
         if not should_generate:
-            # Check if we should use existing answer from Data (CSV)
-            if question.answers and len(question.answers) > 0:
-                gpt_answer_content = question.answers[0].body
-                logger.info("📥 [%s] Using existing answer from CSV/Input", q_name)
-                store.save_answer(
-                    topic_dir, model, gpt_answer_content, question=question
-                )
-                return  # Done
-
             # Check if exists on disk
             if store.has_answer(topic_dir, model):
                 logger.info("⏭️ [%s] Answer already exists, skipping", q_name)
@@ -402,9 +403,9 @@ def _process_evaluation(
                 if question.answers and len(question.answers) > 0:
                     llm_answer_content = question.answers[0].body
 
-            # Get human answer from question object
-            if question.answers and len(question.answers) > 1:
-                human_answer_content = question.answers[1].body
+            # Get human answer from question object (first answer is human answer from SO)
+            if question.answers and len(question.answers) > 0:
+                human_answer_content = question.answers[0].body
 
         if not llm_answer_content:
             logger.warning(
@@ -430,6 +431,16 @@ def _process_evaluation(
             topic_dir, question, model, lint_result, code_blocks, detailed_logs
         )
 
+        # 1.5 Run Coverage Check (Benchmark Logic)
+        if human_answer_content:
+             logger.info("📊 [%s] Checking Coverage...", q_name)
+             coverage_results = evaluator.check_coverage(human_answer_content, llm_answer_content)
+             store.save_coverage_result(topic_dir, model, coverage_results, question)
+             logger.info("✅ [%s] Coverage saved: %s%%", q_name, coverage_results.get('coverage_percentage', 0))
+        else:
+             logger.warning("⚠️ [%s] No human answer for coverage check", q_name)
+
+
         # 2. Run LLM Evaluation (compare LLM answer against human answer)
         if force or not store.has_evaluation(topic_dir, model, model):
             logger.info("🤖 [%s] Evaluating with %s...", q_name, model)
@@ -447,6 +458,82 @@ def _process_evaluation(
 
     except Exception as exc:
         logger.error("Error evaluating %s: %s", topic_dir.name, exc)
+
+
+def _print_coverage_summary(csv_path: Path, model: str) -> None:
+    """Read results CSV and print coverage summary similar to benchmark."""
+    try:
+        import pandas as pd
+        if not csv_path.exists():
+            return
+            
+        df = pd.read_csv(csv_path)
+        from src.utils.model_name import model_token
+        col_name = f"{model_token(model)}_Coverage"
+        
+        if col_name not in df.columns:
+            logger.warning("No coverage column '%s' found in results.", col_name)
+            return
+
+        # Extract percentages
+        coverages = []
+        valid_count = 0
+        error_count = 0
+        
+        for val in df[col_name]:
+            if pd.isna(val):
+                continue
+            val_str = str(val)
+            import re
+            match = re.search(r"([\d\.]+)%", val_str)
+            if match:
+                try:
+                    perc = float(match.group(1))
+                    coverages.append(perc)
+                    valid_count += 1
+                except:
+                    error_count += 1
+            else:
+                error_count += 1
+                
+        if not coverages:
+            logger.info("No valid coverage data found.")
+            return
+            
+        avg_coverage = sum(coverages) / len(coverages)
+        
+        # Distribution
+        dist = {
+            "100%": len([c for c in coverages if c == 100]),
+            "90-99%": len([c for c in coverages if 90 <= c < 100]),
+            "60-89%": len([c for c in coverages if 60 <= c < 90]),
+            "<60%": len([c for c in coverages if c < 60]),
+        }
+        
+        total = len(df)
+        
+        summary = [
+            "\n" + "="*60,
+            "COMPARISON RESULT STATISTICS",
+            "="*60,
+            f"Total Records: {total}",
+            f"Valid Comparisons: {valid_count}",
+            f"Average Coverage: {avg_coverage:.2f}%",
+            f"Max Coverage: {max(coverages):.2f}%",
+            f"Min Coverage: {min(coverages):.2f}%",
+            "",
+            "Coverage Distribution:",
+            f"  100%:    {dist['100%']} ({dist['100%']/valid_count*100:.1f}%)" if valid_count > 0 else "  100%: 0",
+            f"  90-99%:  {dist['90-99%']} ({dist['90-99%']/valid_count*100:.1f}%)" if valid_count > 0 else "  90-99%: 0",
+            f"  60-89%:  {dist['60-89%']} ({dist['60-89%']/valid_count*100:.1f}%)" if valid_count > 0 else "  60-89%: 0",
+            f"  <60%:    {dist['<60%']} ({dist['<60%']/valid_count*100:.1f}%)" if valid_count > 0 else "  <60%: 0",
+            "="*60 + "\n"
+        ]
+        
+        print("\n".join(summary))
+        
+    except Exception as e:
+        logger.error(f"Failed to print coverage summary: {e}")
 
 
 def _load_checkpoint(path: Path, tag: str) -> tuple[int, int]:

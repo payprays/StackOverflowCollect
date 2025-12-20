@@ -26,7 +26,6 @@ BASE_COLUMNS = [
     "Answer Body",
     "Answer Creation Date",
     "Question Creation Date",
-    "newAnswer Body",
 ]
 
 
@@ -43,7 +42,7 @@ class Storage:
         self.out_csv = out_csv or (base_dir / "results.csv")
         self._csv_lock = threading.RLock()
         self._df: Optional[pd.DataFrame] = None
-        
+
         self._load_or_init_csv()
 
     def _load_or_init_csv(self) -> None:
@@ -55,7 +54,11 @@ class Storage:
                     # Ensure Question ID is string
                     if "Question ID" in self._df.columns:
                         self._df["Question ID"] = self._df["Question ID"].astype(str)
-                    logger.info("Loaded existing CSV with %d rows and columns: %s", len(self._df), list(self._df.columns))
+                    logger.info(
+                        "Loaded existing CSV with %d rows and columns: %s",
+                        len(self._df),
+                        list(self._df.columns),
+                    )
                 except Exception as e:
                     logger.warning("Failed to load existing CSV, creating new: %s", e)
                     self._df = pd.DataFrame(columns=BASE_COLUMNS)
@@ -79,14 +82,14 @@ class Storage:
         with self._csv_lock:
             if self._df is None:
                 return
-            
+
             # Ensure all columns exist
             for col in data.keys():
                 self._ensure_column(col)
-            
+
             question_id = str(question_id)
             mask = self._df["Question ID"] == question_id
-            
+
             if mask.any():
                 # Update existing row
                 for col, val in data.items():
@@ -96,8 +99,10 @@ class Storage:
                 new_row = {col: "" for col in self._df.columns}
                 new_row["Question ID"] = question_id
                 new_row.update(data)
-                self._df = pd.concat([self._df, pd.DataFrame([new_row])], ignore_index=True)
-            
+                self._df = pd.concat(
+                    [self._df, pd.DataFrame([new_row])], ignore_index=True
+                )
+
             self._save_csv()
 
     def _topic_dir(self, question: Question) -> Path:
@@ -106,17 +111,17 @@ class Storage:
 
     def ensure_question_in_csv(self, question: Question) -> None:
         """Ensure question base data is in CSV (upserts base columns only).
-        
+
         This is useful when processing from input-csv mode to ensure
         base question data is in the output CSV.
-        
+
         NOTE: This does NOT overwrite existing Answer Body to preserve
         the original human answer from Stack Overflow.
         """
         with self._csv_lock:
             q_id = str(question.question_id)
             q_tags = ", ".join(question.tags) if question.tags else ""
-            
+
             # Get human answer info if available (answers[1] in csv_loader convention)
             # answers[0] = LLM answer, answers[1] = Human answer
             human_ans_id = ""
@@ -128,7 +133,7 @@ class Storage:
                 human_ans_id = str(std_ans.answer_id)
                 human_ans_body = std_ans.body
                 human_ans_created = std_ans.creation_date.isoformat()
-            
+
             # Build base data - but do NOT include Answer Body if it would overwrite
             csv_data = {
                 "Question ID": q_id,
@@ -137,22 +142,32 @@ class Storage:
                 "Question Tags": q_tags,
                 "Question Creation Date": question.creation_date.isoformat(),
             }
-            
+
             # Only set Answer Body if we have a human answer AND it's not already set
             if human_ans_body:
                 # Check if existing row has Answer Body populated
-                existing = self._df[self._df["Question ID"] == q_id] if self._df is not None and "Question ID" in self._df.columns else pd.DataFrame()
+                existing = (
+                    self._df[self._df["Question ID"] == q_id]
+                    if self._df is not None and "Question ID" in self._df.columns
+                    else pd.DataFrame()
+                )
                 should_write_answer = True
                 if not existing.empty:
                     existing_ans = existing.iloc[0].get("Answer Body", "")
-                    if existing_ans and isinstance(existing_ans, str) and len(existing_ans) > 0:
-                        should_write_answer = False  # Already has answer, don't overwrite
-                
+                    if (
+                        existing_ans
+                        and isinstance(existing_ans, str)
+                        and len(existing_ans) > 0
+                    ):
+                        should_write_answer = (
+                            False  # Already has answer, don't overwrite
+                        )
+
                 if should_write_answer:
                     csv_data["Answer ID"] = human_ans_id
                     csv_data["Answer Body"] = human_ans_body
                     csv_data["Answer Creation Date"] = human_ans_created
-            
+
             self._upsert_row(q_id, csv_data)
 
     def save_question(self, topic_dir: Path, question: Question) -> Path:
@@ -160,7 +175,7 @@ class Storage:
         # CSV Output - base columns for crawl
         q_id = str(question.question_id)
         q_tags = ", ".join(question.tags) if question.tags else ""
-        
+
         # Get first answer info if available
         ans_id = ""
         ans_body = ""
@@ -170,7 +185,7 @@ class Storage:
             ans_id = str(std_ans.answer_id)
             ans_body = std_ans.body
             ans_created = std_ans.creation_date.isoformat()
-        
+
         csv_data = {
             "Question ID": q_id,
             "Question Title": question.title,
@@ -180,7 +195,6 @@ class Storage:
             "Answer Body": ans_body,
             "Answer Creation Date": ans_created,
             "Question Creation Date": question.creation_date.isoformat(),
-            "newAnswer Body": "",  # Placeholder, can be filled later
         }
         self._upsert_row(q_id, csv_data)
 
@@ -202,10 +216,15 @@ class Storage:
         (topic_dir / "question_answer.md").write_text(
             self._format_question_answers(question), encoding="utf-8"
         )
-        logger.info("Saved question content to %s", topic_dir)
+        logger.info("💾 Saved question content to %s", topic_dir)
         return topic_dir
 
-    def save_translation(self, topic_dir: Path, result: TranslationResult, question: Optional[Question] = None) -> None:
+    def save_translation(
+        self,
+        topic_dir: Path,
+        result: TranslationResult,
+        question: Optional[Question] = None,
+    ) -> None:
         """Save Q&A translation to directory and CSV (adds QA_Translated column)."""
         # Get Question ID
         q_id = ""
@@ -213,11 +232,13 @@ class Storage:
             q_id = str(question.question_id)
         else:
             try:
-                q_data = json.loads((topic_dir / "question.json").read_text(encoding="utf-8"))
+                q_data = json.loads(
+                    (topic_dir / "question.json").read_text(encoding="utf-8")
+                )
                 q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
             except (FileNotFoundError, json.JSONDecodeError):
                 q_id = topic_dir.name.split("_")[0]
-        
+
         # CSV Output - add QA_Translated column
         self._upsert_row(q_id, {"QA_Translated": result.translated_question_answers})
 
@@ -235,7 +256,7 @@ class Storage:
     @staticmethod
     def _format_question_answers(question: Question, human_answer: str = "") -> str:
         """Format question and human answer for LLM evaluation context.
-        
+
         Args:
             question: The Question object
             human_answer: Optional human/reference answer (Stack Overflow answer)
@@ -250,15 +271,32 @@ class Storage:
             html_to_text(question.body),
             "",
         ]
-        
+
         # Add human answer as reference if provided
         if human_answer:
-            header.extend([
-                "## Reference Answer (Human)",
-                html_to_text(human_answer),
-                "",
-            ])
-        
+            header.extend(
+                [
+                    "## Reference Answer (Human)",
+                    html_to_text(human_answer),
+                    "",
+                ]
+            )
+        elif question.answers:
+            header.append("## Answers")
+            for i, answer in enumerate(question.answers, 1):
+                header.extend(
+                    [
+                        f"### Answer {i}",
+                        f"Accepted: {answer.is_accepted}",
+                        f"Score: {answer.score}",
+                        f"Link: {answer.link}",
+                        f"Created: {answer.creation_date.isoformat()}",
+                        "",
+                        html_to_text(answer.body),
+                        "",
+                    ]
+                )
+
         return "\n".join(header)
 
     def get_question_answer_content(self, topic_dir: Path) -> str:
@@ -276,12 +314,19 @@ class Storage:
             return path.read_text(encoding="utf-8")
         return ""
 
-    def save_answer(self, topic_dir: Path, model_name: str, content: str, raw_response: Optional[dict] = None, question: Optional[Question] = None) -> None:
+    def save_answer(
+        self,
+        topic_dir: Path,
+        model_name: str,
+        content: str,
+        raw_response: Optional[dict] = None,
+        question: Optional[Question] = None,
+    ) -> None:
         """Save model-generated answer to directory and CSV (adds {model}_Answer column)."""
         from src.utils.model_name import model_token
 
         token = model_token(model_name)
-        
+
         # Save raw JSON for debugging
         if raw_response:
             (topic_dir / f"{token}_answer_raw.json").write_text(
@@ -295,11 +340,13 @@ class Storage:
         else:
             # Fallback to parsing from topic_dir or question.json
             try:
-                q_data = json.loads((topic_dir / "question.json").read_text(encoding="utf-8"))
+                q_data = json.loads(
+                    (topic_dir / "question.json").read_text(encoding="utf-8")
+                )
                 q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
             except (FileNotFoundError, json.JSONDecodeError):
                 q_id = topic_dir.name.split("_")[0]
-        
+
         # CSV Output - add {model}_Answer column
         answer_col = f"{model_name}_Answer"
         self._upsert_row(q_id, {answer_col: content})
@@ -308,17 +355,21 @@ class Storage:
         (topic_dir / f"{token}_answer.md").write_text(content, encoding="utf-8")
         logger.debug("Saved answer for %s to %s", model_name, topic_dir)
 
-    def save_answer_translation(self, topic_dir: Path, model_name: str, content: str) -> None:
+    def save_answer_translation(
+        self, topic_dir: Path, model_name: str, content: str
+    ) -> None:
         """Save translated answer to directory and CSV (adds {model}_Answer_Translated column)."""
         from src.utils.model_name import model_token
 
         # Get Question ID
         try:
-            q_data = json.loads((topic_dir / "question.json").read_text(encoding="utf-8"))
+            q_data = json.loads(
+                (topic_dir / "question.json").read_text(encoding="utf-8")
+            )
             q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
         except (FileNotFoundError, json.JSONDecodeError):
             q_id = topic_dir.name.split("_")[0]
-        
+
         # CSV Output - add {model}_Answer_Translated column
         trans_col = f"{model_name}_Answer_Translated"
         self._upsert_row(q_id, {trans_col: content})
@@ -342,11 +393,13 @@ class Storage:
 
         # Get Question ID
         try:
-            q_data = json.loads((topic_dir / "question.json").read_text(encoding="utf-8"))
+            q_data = json.loads(
+                (topic_dir / "question.json").read_text(encoding="utf-8")
+            )
             q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
         except (FileNotFoundError, json.JSONDecodeError):
             q_id = topic_dir.name.split("_")[0]
-        
+
         # CSV Output - add {eval_model}_Evaluate_{answer_model}_Answer column
         eval_col = f"{eval_model}_Evaluate_{answer_model}_Answer"
         self._upsert_row(q_id, {eval_col: content})
@@ -356,7 +409,7 @@ class Storage:
         eval_token = model_token(eval_model)
         filename = f"{eval_token}_evaluate_{ans_token}_answer.md"
         (topic_dir / filename).write_text(content, encoding="utf-8")
-        
+
         # Save raw JSON for debugging
         debug_filename = f"{eval_token}_evaluate_{ans_token}_raw.json"
         (topic_dir / debug_filename).write_text(
@@ -380,7 +433,7 @@ class Storage:
         detailed_logs: str = "",
     ) -> None:
         """Save lint result, code blocks, and detailed logs to CSV.
-        
+
         Adds columns:
         - lint: Summary of lint results
         - {model}_Answer_CodeBlocks: Merged YAML code blocks
@@ -392,20 +445,69 @@ class Storage:
             q_id = str(question.question_id)
         else:
             try:
-                q_data = json.loads((topic_dir / "question.json").read_text(encoding="utf-8"))
+                q_data = json.loads(
+                    (topic_dir / "question.json").read_text(encoding="utf-8")
+                )
                 q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
             except (FileNotFoundError, json.JSONDecodeError):
                 q_id = topic_dir.name.split("_")[0]
-        
+
         # CSV Output - add lint, code blocks, and logs columns
         code_blocks_col = f"{model_name}_Answer_CodeBlocks"
-        self._upsert_row(q_id, {
-            "lint": lint_summary,
-            code_blocks_col: code_blocks,
-            "lint_logs": detailed_logs
-        })
-        
+        self._upsert_row(
+            q_id,
+            {
+                "lint": lint_summary,
+                code_blocks_col: code_blocks,
+                "lint_logs": detailed_logs,
+            },
+        )
+
         logger.debug("Saved lint result for %s: %s", topic_dir.name, lint_summary)
+
+    def save_coverage_result(
+        self,
+        topic_dir: Path,
+        model_name: str,
+        coverage_data: Dict[str, Any],
+        question: Optional[Question] = None,
+    ) -> None:
+        """Save coverage analysis result to CSV and JSON."""
+        from src.utils.model_name import model_token
+
+        token = model_token(model_name)
+
+        # Get Question ID
+        q_id = ""
+        if question:
+            q_id = str(question.question_id)
+        else:
+            try:
+                q_data = json.loads(
+                    (topic_dir / "question.json").read_text(encoding="utf-8")
+                )
+                q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
+            except (FileNotFoundError, json.JSONDecodeError):
+                q_id = topic_dir.name.split("_")[0]
+
+        # Save detailed JSON
+        (topic_dir / f"{token}_coverage.json").write_text(
+            json.dumps(coverage_data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+        # Format CSV value
+        percentage = coverage_data.get("coverage_percentage", 0.0)
+        formatted_val = f"{percentage}%"
+
+        error = coverage_data.get("error")
+        if error:
+            formatted_val += f" (Error: {error})"
+
+        # CSV Output
+        col_name = f"{token}_Coverage"
+        self._upsert_row(q_id, {col_name: formatted_val})
+
+        logger.debug("Saved coverage result for %s: %s", topic_dir.name, formatted_val)
 
     def save_evaluation_translation(
         self,
@@ -419,11 +521,13 @@ class Storage:
 
         # Get Question ID
         try:
-            q_data = json.loads((topic_dir / "question.json").read_text(encoding="utf-8"))
+            q_data = json.loads(
+                (topic_dir / "question.json").read_text(encoding="utf-8")
+            )
             q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
         except (FileNotFoundError, json.JSONDecodeError):
             q_id = topic_dir.name.split("_")[0]
-        
+
         # CSV Output - add {eval_model}_Evaluate_{answer_model}_Answer_Translated column
         trans_col = f"{eval_model}_Evaluate_{answer_model}_Answer_Translated"
         self._upsert_row(q_id, {trans_col: content})
@@ -433,7 +537,7 @@ class Storage:
         eval_token = model_token(eval_model)
         filename = f"{eval_token}_evaluate_{ans_token}_answer_translated.md"
         (topic_dir / filename).write_text(content, encoding="utf-8")
-        
+
         logger.info(
             "Saved evaluation translation for %s on %s by %s",
             topic_dir.name,
@@ -459,7 +563,7 @@ class Storage:
         # For now, we rely on directory existence as primary check if directory mode is used.
         # If ONLY CSV mode is used (not current plan, we assume hybrid), this might re-run.
         # Optimization: Init should read existing CSV and build a set of existing keys.
-        
+
         ans_token = model_token(answer_model)
         eval_token = model_token(eval_model)
         filename = f"{eval_token}_evaluate_{ans_token}_answer.md"

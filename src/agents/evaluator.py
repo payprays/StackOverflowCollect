@@ -70,3 +70,9 @@ class Evaluator:
         ]
         return self.llm_client.chat_completion_full(messages)
 
+    def check_coverage(self, human_answer: str, llm_answer: str) -> Dict[str, Any]:
+        """Calculates YAML field coverage of LLM answer vs Human answer (Benchmark Logic)."""
+        from src.utils.coverage import calculate_coverage
+        return calculate_coverage(human_answer, llm_answer)
+
+

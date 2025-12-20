@@ -77,6 +77,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to output CSV file for crawled questions.",
     )
+    crawl_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-crawl of existing content/ignore checkpoints.",
+    )
 
     # Translate Command
     translate_parser = subparsers.add_parser(
@@ -322,6 +327,7 @@ def main() -> None:
             page_size=args.page_size,
             checkpoint_file=args.checkpoint_file,
             output_csv=args.output_csv,
+            force=args.force,
         )
     elif args.command == "translate":
         if not args.out_dir and not args.input_csv:
