@@ -1,10 +1,14 @@
-
 import argparse
 import argcomplete
 import logging
 from pathlib import Path
 
-from src.flows.workflow import run_crawl, run_translate, run_batch_evaluate, run_batch_answer
+from src.flows.workflow import (
+    run_crawl,
+    run_translate,
+    run_batch_evaluate,
+    run_batch_answer,
+)
 from src.utils.restructure import restructure_directories
 from src.conf.config import settings
 
@@ -28,10 +32,15 @@ def parse_args() -> argparse.Namespace:
         "crawl", help="Fetch questions from Stack Overflow."
     )
     crawl_parser.add_argument(
-        "--tag", default="kubernetes", help="Stack Overflow tag to fetch (default: kubernetes)."
+        "--tag",
+        default="kubernetes",
+        help="Stack Overflow tag to fetch (default: kubernetes).",
     )
     crawl_parser.add_argument(
-        "--limit", type=int, default=5, help="Maximum number of questions to fetch (default: 5)."
+        "--limit",
+        type=int,
+        default=5,
+        help="Maximum number of questions to fetch (default: 5).",
     )
     crawl_parser.add_argument(
         "--out-dir",
@@ -62,6 +71,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to the checkpoint file for resuming crawls.",
     )
+    crawl_parser.add_argument(
+        "--output-csv",
+        type=Path,
+        default=None,
+        help="Path to output CSV file for crawled questions.",
+    )
 
     # Translate Command
     translate_parser = subparsers.add_parser(
@@ -75,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     )
     translate_parser.add_argument(
         "--base-url",
-        dest="model_url", # Map to model_url for internal function if needed, or change internal
+        dest="model_url",  # Map to model_url for internal function if needed, or change internal
         default=settings.LOCAL_MODEL_URL,
         help="Base URL for the translation model API.",
     )
@@ -107,6 +122,18 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Skip the first N items.",
     )
+    translate_parser.add_argument(
+        "--input-csv",
+        type=Path,
+        default=None,
+        help="Path to input CSV file containing questions (Alternative source).",
+    )
+    translate_parser.add_argument(
+        "--output-csv",
+        type=Path,
+        default=None,
+        help="Path to output CSV file for translation results.",
+    )
 
     # Answer Command
     answer_parser = subparsers.add_parser(
@@ -116,7 +143,7 @@ def parse_args() -> argparse.Namespace:
         "--out-dir",
         default=None,
         type=Path,
-        help="Directory containing fetched content (Required unless --csv-path is used).",
+        help="Directory containing fetched content.",
     )
     answer_parser.add_argument(
         "--model",
@@ -162,13 +189,19 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to input CSV file containing questions (Alternative source).",
     )
+    answer_parser.add_argument(
+        "--output-csv",
+        type=Path,
+        default=None,
+        help="Path to output CSV file for results (Default: out_dir/results.csv).",
+    )
 
     # Evaluate Command
     eval_parser = subparsers.add_parser(
         "evaluate", help="Evaluate generated answers (Step 2)."
     )
     eval_parser.add_argument(
-        "--out-dir",
+        "--input-dir",
         default=None,
         type=Path,
         help="Directory containing data (Required unless --input-csv is used).",
@@ -222,7 +255,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to input CSV file (for question context).",
     )
-
+    eval_parser.add_argument(
+        "--output-csv",
+        type=Path,
+        default=None,
+        help="Path to output CSV file for results (Default: out_dir/results.csv).",
+    )
 
     # Restructure Command (Legacy/Utility)
     restructure_parser = subparsers.add_parser(
@@ -243,10 +281,32 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
+    
+    # Setup colored logging
+    class ColoredFormatter(logging.Formatter):
+        """Custom formatter with colors for different log levels."""
+        COLORS = {
+            'DEBUG': '\033[36m',    # Cyan
+            'INFO': '\033[32m',     # Green
+            'WARNING': '\033[33m',  # Yellow
+            'ERROR': '\033[31m',    # Red
+            'CRITICAL': '\033[35m', # Magenta
+        }
+        RESET = '\033[0m'
+        
+        def format(self, record):
+            color = self.COLORS.get(record.levelname, self.RESET)
+            record.levelname = f"{color}{record.levelname}{self.RESET}"
+            record.name = f"\033[34m{record.name}{self.RESET}"  # Blue for logger name
+            return super().format(record)
+    
+    handler = logging.StreamHandler()
+    handler.setFormatter(ColoredFormatter("%(levelname)s %(name)s: %(message)s"))
+    
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
+    root_logger.addHandler(handler)
+    
     # Silence noisy libraries unless verbose
     if not args.verbose:
         logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -261,27 +321,31 @@ def main() -> None:
             workers=args.workers,
             page_size=args.page_size,
             checkpoint_file=args.checkpoint_file,
+            output_csv=args.output_csv,
         )
     elif args.command == "translate":
-        if not args.out_dir:
-             print("Error: --out-dir is required for translate.")
-             return
+        if not args.out_dir and not args.input_csv:
+            print("Error: must specify --out-dir or --input-csv.")
+            return
         run_translate(
-            out_dir=args.out_dir,
+            out_dir=args.out_dir or Path("data"),
             model_url=args.model_url,
             api_key=args.api_key,
             workers=args.workers,
             force=args.force,
             limit=args.limit,
             skip=args.skip,
+            input_csv=args.input_csv,
+            output_csv=args.output_csv,
         )
     elif args.command == "evaluate":
-        if not args.out_dir and not args.input_csv:
-             print("Error: must specify --out-dir or --input-csv.")
-             return
-        
+        if not args.input_dir and not args.input_csv:
+            print("Error: must specify --input-dir or --input-csv.")
+            return
+
         run_batch_evaluate(
-            out_dir=args.out_dir or Path("data"), # Default to data ONLY if csv provided
+            out_dir=args.input_dir
+            or Path("data"),  # Default to data ONLY if csv provided
             model=args.model,
             base_url=args.base_url,
             api_key=args.api_key,
@@ -291,11 +355,12 @@ def main() -> None:
             limit=args.limit,
             skip=args.skip,
             input_csv=args.input_csv,
+            output_csv=args.output_csv,
         )
     elif args.command == "answer":
         if not args.out_dir and not args.input_csv:
-             print("Error: must specify --out-dir or --input-csv.")
-             return
+            print("Error: must specify --out-dir or --input-csv.")
+            return
 
         run_batch_answer(
             out_dir=args.out_dir or Path("data"),
@@ -307,6 +372,7 @@ def main() -> None:
             limit=args.limit,
             skip=args.skip,
             input_csv=args.input_csv,
+            output_csv=args.output_csv,
         )
     elif args.command == "restructure":
         restructure_directories(args.out_dir)

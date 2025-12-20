@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def run_crawl(
     tag: str = "kubernetes",
-# ... (lines 24-279 skipped)
+    # ... (lines 24-279 skipped)
     limit: int = 5,
     page_size: int = 50,
     out_dir: str | Path = "data",
@@ -31,10 +31,11 @@ def run_crawl(
     workers: int = 4,
     checkpoint_file: str | Path | None = None,
     session: Optional[httpx.Client] = None,
+    output_csv: Optional[str | Path] = None,
 ) -> None:
     http_client = session or httpx.Client(timeout=httpx.Timeout(60.0), http2=False)
     fetcher = StackOverflowClient(session=http_client, key=stack_key)
-    store = Storage(Path(out_dir))
+    store = Storage(Path(out_dir), out_csv=Path(output_csv) if output_csv else None)
 
     checkpoint_path = (
         Path(checkpoint_file) if checkpoint_file else Path(out_dir) / "checkpoint.json"
@@ -92,19 +93,28 @@ def run_translate(
     force: bool = False,
     limit: Optional[int] = None,
     skip: int = 0,
+    input_csv: Optional[str | Path] = None,
+    output_csv: Optional[str | Path] = None,
 ) -> None:
     base = Path(out_dir)
     http_client = session or httpx.Client(timeout=httpx.Timeout(60.0), http2=False)
     translator = Translator(base_url=model_url, api_key=api_key, session=http_client)
-    store = Storage(base)
+    store = Storage(base, out_csv=Path(output_csv) if output_csv else None)
+
+    if input_csv:
+        from src.utils.csv_loader import load_questions_from_csv
+
+        iterator = load_questions_from_csv(Path(input_csv), base)
+    else:
+        iterator = load_questions_from_dir(base, skip=skip)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures: list[Future[None]] = []
         processed = 0
-        for topic_dir, question in load_questions_from_dir(base, skip=skip):
+        for topic_dir, question in iterator:
             if limit is not None and processed >= limit:
                 break
-            
+
             # Logic to check if translation is needed is complex now (multiple files).
             # We submit if ANY translation might be needed or let the worker decide.
             futures.append(
@@ -118,7 +128,11 @@ def run_translate(
 
 
 def _translate_and_store(
-    translator: Translator, store: Storage, question: Question, topic_dir: Path, force: bool = False
+    translator: Translator,
+    store: Storage,
+    question: Question,
+    topic_dir: Path,
+    force: bool = False,
 ) -> None:
     # 1. Translate Question & StackOverflow Answers (Original behavior)
     # Check if exists
@@ -130,23 +144,28 @@ def _translate_and_store(
             store.save_translation(topic_dir, result)
         except httpx.HTTPError as exc:
             logger.error("Translation failed for %s: %s", question.link, exc)
-    
+
     # 2. Translate Generated Answers (New behavior detached from answer command)
     # Find all *_answer.md files
     for answer_file in topic_dir.glob("*_answer.md"):
         model_token = answer_file.stem.replace("_answer", "")
         trans_file = topic_dir / f"{model_token}_answer_translated.md"
-        
+
         if force or not trans_file.exists():
             content = answer_file.read_text(encoding="utf-8")
             from src.utils import validators
+
             if content and not validators.is_chinese(content):
-                logger.info("Translating answer %s for %s...", answer_file.name, topic_dir.name)
+                logger.info(
+                    "Translating answer %s for %s...", answer_file.name, topic_dir.name
+                )
                 try:
                     translated = translator.translate_text(content)
                     store.save_answer_translation(topic_dir, model_token, translated)
                 except Exception as exc:
-                    logger.error("Failed to translate answer %s: %s", answer_file.name, exc)
+                    logger.error(
+                        "Failed to translate answer %s: %s", answer_file.name, exc
+                    )
 
 
 def run_batch_answer(
@@ -177,6 +196,7 @@ def run_batch_answer(
 
     if input_csv:
         from src.utils.csv_loader import load_questions_from_csv
+
         iterator = load_questions_from_csv(Path(input_csv), base)
     else:
         iterator = load_questions_from_dir(base, skip=skip)
@@ -231,15 +251,21 @@ def run_batch_evaluate(
 
     if input_csv:
         from src.utils.csv_loader import load_questions_from_csv
+
         iterator = load_questions_from_csv(Path(input_csv), base)
     else:
         iterator = load_questions_from_dir(base, reverse=reverse, skip=skip)
 
+    # Track if we're in CSV input mode
+    csv_mode = input_csv is not None
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures: list[Future[None]] = []
         processed = 0
+        skipped = 0
         for topic_dir, question in iterator:
             if limit is not None and processed >= limit:
+                logger.debug("Reached limit %d, breaking", limit)
                 break
             futures.append(
                 pool.submit(
@@ -250,11 +276,21 @@ def run_batch_evaluate(
                     topic_dir,
                     force,
                     model,
+                    csv_mode,  # Pass CSV mode flag
                 )
             )
             processed += 1
+
+        logger.info(
+            "📤 Submitted %d items for evaluation (skipped: %d)", processed, skipped
+        )
+
+        completed = 0
         for fut in as_completed(futures):
             fut.result()
+            completed += 1
+
+        logger.info("🏁 Evaluate complete: %d/%d items processed", completed, processed)
 
 
 # Deprecated wrapper for backward compatibility if needed, but we will remove CLI usage
@@ -264,7 +300,7 @@ def run_evaluate(*args, **kwargs):
     # For this refactor, we replace it with `run_batch_evaluate` logic if called as evaluate,
     # but since main.py is switching, we leave run_evaluate as a dummy or remove it.
     logger.warning("run_evaluate is deprecated.")
-    pass 
+    pass
 
 
 def _process_answer(
@@ -281,36 +317,49 @@ def _process_answer(
 
         # 1. Answer Generation / Loading
         gpt_answer_content = ""
-        
+
+        # Use short name for logs (question ID)
+        q_name = topic_dir.name.split("_")[0]
+        logger.info("📋 [%s] Processing: %s", q_name, topic_dir.name)
+
         # Logic:
         # 1. If FORCE -> Generate (Ignore CSV input, Ignore Disk)
         # 2. If CSV Input has answer -> Use it (Save to disk)
         # 3. If Disk has answer -> Skip (Use it)
         # 4. Generate
-        
+
         should_generate = force
-        
+
         if not should_generate:
             # Check if we should use existing answer from Data (CSV)
             if question.answers and len(question.answers) > 0:
                 gpt_answer_content = question.answers[0].body
-                logger.info("Using existing answer from CSV/Input for %s", topic_dir.name)
-                store.save_answer(topic_dir, model, gpt_answer_content, question=question)
-                return # Done
-            
+                logger.info("📥 [%s] Using existing answer from CSV/Input", q_name)
+                store.save_answer(
+                    topic_dir, model, gpt_answer_content, question=question
+                )
+                return  # Done
+
             # Check if exists on disk
             if store.has_answer(topic_dir, model):
-                logger.info("Answer for %s already exists, skipping generation.", topic_dir.name)
-                # gpt_answer_content = store.get_answer_content(topic_dir, model) 
-                return # Done
-            
+                logger.info("⏭️ [%s] Answer already exists, skipping", q_name)
+                return  # Done
+
             # If neither, proceed to generate
             should_generate = True
 
         if should_generate:
+            logger.info("🤖 [%s] Generating answer with %s...", q_name, model)
             question_text = f"{question.title}\n\n{html_to_text(question.body)}"
             gpt_answer_content, raw_resp = evaluator.generate_answer(question_text)
-            store.save_answer(topic_dir, model, gpt_answer_content, raw_response=raw_resp, question=question)
+            store.save_answer(
+                topic_dir,
+                model,
+                gpt_answer_content,
+                raw_response=raw_resp,
+                question=question,
+            )
+            logger.info("✅ [%s] Answer saved", q_name)
 
     except Exception as exc:
         logger.error("Error processing answer for %s: %s", topic_dir.name, exc)
@@ -323,39 +372,81 @@ def _process_evaluation(
     topic_dir: Path,
     force: bool,
     model: str,
+    csv_mode: bool = False,
 ) -> None:
     try:
-        # We need an answer to evaluate.
-        # We check store or question.answers logic?
-        # Standard flow: Answer should exist in local storage (md file) or passed in Question.
-        # Since CSV loading might not populate Question.answers unless we modified loader widely,
-        # but we did modify loader to populate it.
-        # However, `run_batch_evaluate` might be run on existing directory WITHOUT CSV input.
-        # So we look at Storage first.
-        
-        gpt_answer_content = store.get_answer_content(topic_dir, model)
-        
-        if not gpt_answer_content:
-            # Check if passed explicitly via question object (from Input CSV)
-             if question.answers and len(question.answers) > 0:
-                 gpt_answer_content = question.answers[0].body
-        
-        if not gpt_answer_content:
-            logger.warning("No answer found for %s (model: %s), skipping evaluation.", topic_dir.name, model)
+        # === Get LLM Answer (what we're evaluating) ===
+        # When csv_mode=True: prioritize CSV content over disk files
+        # When csv_mode=False: prioritize disk files (backward compatible)
+
+        llm_answer_content = ""
+        human_answer_content = ""
+
+        if csv_mode:
+            # CSV mode: prioritize content from question object (loaded from CSV)
+            # answers[0] = LLM answer, answers[1] = Human answer
+            if question.answers and len(question.answers) > 0:
+                llm_answer_content = question.answers[0].body
+            if question.answers and len(question.answers) > 1:
+                human_answer_content = question.answers[1].body
+
+            # Fallback to disk if CSV doesn't have LLM answer
+            if not llm_answer_content:
+                llm_answer_content = store.get_answer_content(topic_dir, model)
+        else:
+            # Directory mode: prioritize disk files
+            llm_answer_content = store.get_answer_content(topic_dir, model)
+
+            if not llm_answer_content:
+                # Fallback to question object
+                if question.answers and len(question.answers) > 0:
+                    llm_answer_content = question.answers[0].body
+
+            # Get human answer from question object
+            if question.answers and len(question.answers) > 1:
+                human_answer_content = question.answers[1].body
+
+        if not llm_answer_content:
+            logger.warning(
+                "⚠️ [%s] No LLM answer found (model: %s), skipping",
+                topic_dir.name.split("_")[0],
+                model,
+            )
             return
 
-        # Check existence
+        # 0. Ensure base question data is in CSV (for input-csv mode)
+        store.ensure_question_in_csv(question)
+
+        # Use short name for logs (question ID)
+        q_name = topic_dir.name.split("_")[0]  # Just the ID
+        logger.info("📋 [%s] Processing: %s", q_name, topic_dir.name)
+
+        # 1. Run Lint Check on LLM answer and extract code blocks
+        from src.utils.yaml_lint import lint_answer_full
+
+        lint_result, code_blocks, detailed_logs = lint_answer_full(llm_answer_content)
+        logger.info("🔍 [%s] Lint: %s", q_name, lint_result)
+        store.save_lint_result(
+            topic_dir, question, model, lint_result, code_blocks, detailed_logs
+        )
+
+        # 2. Run LLM Evaluation (compare LLM answer against human answer)
         if force or not store.has_evaluation(topic_dir, model, model):
-                # Format Q&A for evaluator
-                formatted_qa = Storage._format_question_answers(question)
-                evaluation, raw_resp = evaluator.evaluate(formatted_qa, gpt_answer_content, model)
-                store.save_evaluation(topic_dir, model, model, evaluation, raw_resp)
+            logger.info("🤖 [%s] Evaluating with %s...", q_name, model)
+            # Format Q&A includes question + human answer as reference
+            formatted_qa = Storage._format_question_answers(
+                question, human_answer_content
+            )
+            evaluation, raw_resp = evaluator.evaluate(
+                formatted_qa, llm_answer_content, model
+            )
+            store.save_evaluation(topic_dir, model, model, evaluation, raw_resp)
+            logger.info("✅ [%s] Evaluation saved", q_name)
         else:
-                logger.info("Evaluation for %s already exists.", topic_dir.name)
+            logger.info("⏭️ [%s] Evaluation already exists, skipping", q_name)
 
     except Exception as exc:
         logger.error("Error evaluating %s: %s", topic_dir.name, exc)
-
 
 
 def _load_checkpoint(path: Path, tag: str) -> tuple[int, int]:

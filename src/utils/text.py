@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 from typing import List, cast
 from textwrap import dedent as dedent
 
-from bs4 import BeautifulSoup, NavigableString, Tag, PageElement
+from bs4 import BeautifulSoup, NavigableString, Tag, PageElement, XMLParsedAsHTMLWarning
+
+# Suppress XMLParsedAsHTMLWarning - we're parsing HTML fragments, not XML
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 
 def html_to_text(html: str) -> str:
