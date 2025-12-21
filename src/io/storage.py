@@ -570,3 +570,54 @@ class Storage:
         path = topic_dir / filename
         # Removed is_file_chinese check to decouple language logic
         return path.exists() and not is_file_empty(path)
+
+    def save_comparison_result(
+        self,
+        topic_dir: Path,
+        primary_model: str,
+        content: str,
+        raw_response: dict,
+        question: Optional[Question] = None,
+    ) -> None:
+        """Save comparison result to directory and CSV (adds Compare column)."""
+        from src.utils.model_name import model_token
+
+        # Get Question ID
+        q_id = ""
+        if question:
+            q_id = str(question.question_id)
+        else:
+            try:
+                q_data = json.loads(
+                    (topic_dir / "question.json").read_text(encoding="utf-8")
+                )
+                q_id = str(q_data.get("id", topic_dir.name.split("_")[0]))
+            except (FileNotFoundError, json.JSONDecodeError):
+                q_id = topic_dir.name.split("_")[0]
+
+        token = model_token(primary_model)
+
+        # CSV Output - add Compare column
+        compare_col = f"{token}_Compare"
+        self._upsert_row(q_id, {compare_col: content})
+
+        # Directory Output
+        filename = f"{token}_compare.md"
+        (topic_dir / filename).write_text(content, encoding="utf-8")
+
+        # Save raw JSON for debugging
+        debug_filename = f"{token}_compare_raw.json"
+        (topic_dir / debug_filename).write_text(
+            json.dumps(raw_response, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+        logger.debug("Saved comparison result for %s", topic_dir.name)
+
+    def has_comparison(self, topic_dir: Path, model: str) -> bool:
+        from src.utils.model_name import model_token
+        from src.utils.text import is_file_empty
+
+        token = model_token(model)
+        path = topic_dir / f"{token}_compare.md"
+        return path.exists() and not is_file_empty(path)
+

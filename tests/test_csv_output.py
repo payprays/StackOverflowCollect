@@ -17,7 +17,7 @@ from src.utils.yaml_lint import (
     LintResult,
     OverallLintResult,
 )
-from src.services.storage import Storage
+from src.io.storage import Storage
 from src.domain.models import Question, Answer
 
 

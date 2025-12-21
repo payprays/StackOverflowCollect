@@ -3,7 +3,7 @@ import argcomplete
 import logging
 from pathlib import Path
 
-from src.flows.workflow import (
+from src.cli import (
     run_crawl,
     run_translate,
     run_batch_evaluate,
@@ -145,7 +145,7 @@ def parse_args() -> argparse.Namespace:
         "answer", help="Generate answers for questions (Step 1)."
     )
     answer_parser.add_argument(
-        "--out-dir",
+        "--input-dir",
         default=None,
         type=Path,
         help="Directory containing fetched content.",
@@ -266,6 +266,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to output CSV file for results (Default: out_dir/results.csv).",
     )
+    eval_parser.add_argument(
+        "--modules",
+        nargs="+",
+        choices=["lint", "coverage", "llm-eval", "compare", "all"],
+        default=["all"],
+        help="Evaluation modules to run. Options: lint, coverage, llm-eval, compare, all (default: all).",
+    )
 
     # Restructure Command (Legacy/Utility)
     restructure_parser = subparsers.add_parser(
@@ -286,32 +293,33 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    
+
     # Setup colored logging
     class ColoredFormatter(logging.Formatter):
         """Custom formatter with colors for different log levels."""
+
         COLORS = {
-            'DEBUG': '\033[36m',    # Cyan
-            'INFO': '\033[32m',     # Green
-            'WARNING': '\033[33m',  # Yellow
-            'ERROR': '\033[31m',    # Red
-            'CRITICAL': '\033[35m', # Magenta
+            "DEBUG": "\033[36m",  # Cyan
+            "INFO": "\033[32m",  # Green
+            "WARNING": "\033[33m",  # Yellow
+            "ERROR": "\033[31m",  # Red
+            "CRITICAL": "\033[35m",  # Magenta
         }
-        RESET = '\033[0m'
-        
+        RESET = "\033[0m"
+
         def format(self, record):
             color = self.COLORS.get(record.levelname, self.RESET)
             record.levelname = f"{color}{record.levelname}{self.RESET}"
             record.name = f"\033[34m{record.name}{self.RESET}"  # Blue for logger name
             return super().format(record)
-    
+
     handler = logging.StreamHandler()
     handler.setFormatter(ColoredFormatter("%(levelname)s %(name)s: %(message)s"))
-    
+
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG if args.verbose else logging.INFO)
     root_logger.addHandler(handler)
-    
+
     # Silence noisy libraries unless verbose
     if not args.verbose:
         logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -362,14 +370,15 @@ def main() -> None:
             skip=args.skip,
             input_csv=args.input_csv,
             output_csv=args.output_csv,
+            modules=args.modules,
         )
     elif args.command == "answer":
-        if not args.out_dir and not args.input_csv:
-            print("Error: must specify --out-dir or --input-csv.")
+        if not args.input_dir and not args.input_csv:
+            print("Error: must specify --input-dir or --input-csv.")
             return
 
         run_batch_answer(
-            out_dir=args.out_dir or Path("data"),
+            input_dir=args.input_dir or Path("data"),
             model=args.model,
             base_url=args.base_url,
             api_key=args.api_key,
@@ -381,11 +390,11 @@ def main() -> None:
             output_csv=args.output_csv,
         )
     elif args.command == "restructure":
-        restructure_directories(args.out_dir)
+        restructure_directories(args.input_csv)
         if args.cleanup_old:
             from src.utils.restructure import cleanup_extra_files
 
-            cleanup_extra_files(args.out_dir)
+            cleanup_extra_files(args.input_csv)
 
 
 if __name__ == "__main__":

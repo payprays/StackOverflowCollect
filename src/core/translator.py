@@ -14,7 +14,7 @@ from src.utils.text import html_to_text
 logger = logging.getLogger(__name__)
 
 
-from src.services.llm_client import LLMClient
+from src.core.llm_client import LLMClient
 
 class Translator:
     def __init__(

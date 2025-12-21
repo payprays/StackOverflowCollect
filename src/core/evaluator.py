@@ -6,9 +6,7 @@ import httpx
 from dotenv import load_dotenv
 from src.utils.model_name import model_token
 
-
-from src.services.llm_client import LLMClient
-from src.services.llm_client import LLMClient
+from src.core.llm_client import LLMClient
 from src.conf.prompts import (
     FULL_EVALUATION_SYSTEM_PROMPT,
     ANSWER_SYSTEM_PROMPT,

@@ -1,8 +1,7 @@
-
 import json
 from unittest.mock import MagicMock
-from src.flows.workflow import run_crawl, run_translate, run_batch_answer, run_batch_evaluate
-from src.services.storage import Storage
+from src.cli import run_crawl, run_translate, run_batch_answer, run_batch_evaluate
+from src.io.storage import Storage
 
 
 def test_run_crawl_flow(tmp_path, mock_httpx_client):
@@ -59,6 +58,7 @@ def test_run_translate_flow(tmp_path, mock_httpx_client, sample_question):
             {"message": {"content": "# 翻译后问题与回答\nTrans\n# gpt4o回答\nAns"}}
         ]
     }
+
     # We might need side_effect if translate_text is called and returns simple string
     def translate_side_effect(json_input=None, **kwargs):
         # Inspect input to deduce if it's translate() or translate_text()
@@ -66,7 +66,7 @@ def test_run_translate_flow(tmp_path, mock_httpx_client, sample_question):
         return mock_resp_json
 
     mock_httpx_client.post.return_value.json.return_value = mock_resp_json
-    
+
     # Create a dummy answer file to test answer translation detachment
     (topic_dir / "gpt4o_answer.md").write_text("English Answer", encoding="utf-8")
 
@@ -91,7 +91,7 @@ def test_run_evaluate_flow(tmp_path, mock_httpx_client, sample_question):
     # Pass api_key to avoid RuntimeError
     # 1. Answer Mode
     run_batch_answer(
-        out_dir=tmp_path,
+        input_dir=tmp_path,
         session=mock_httpx_client,
         workers=1,
         force=True,
