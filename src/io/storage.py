@@ -578,6 +578,7 @@ class Storage:
         content: str,
         raw_response: dict,
         question: Optional[Question] = None,
+        no_reference: bool = False,
     ) -> None:
         """Save comparison result to directory and CSV (adds Compare column)."""
         from src.utils.model_name import model_token
@@ -602,11 +603,13 @@ class Storage:
         self._upsert_row(q_id, {compare_col: content})
 
         # Directory Output
-        filename = f"{token}_compare.md"
+        filename = f"{token}_compare{'_no_reference' if no_reference else ''}.md"
         (topic_dir / filename).write_text(content, encoding="utf-8")
 
         # Save raw JSON for debugging
-        debug_filename = f"{token}_compare_raw.json"
+        debug_filename = (
+            f"{token}_compare{'_no_reference' if no_reference else ''}_raw.json"
+        )
         (topic_dir / debug_filename).write_text(
             json.dumps(raw_response, indent=2, ensure_ascii=False), encoding="utf-8"
         )
@@ -620,4 +623,3 @@ class Storage:
         token = model_token(model)
         path = topic_dir / f"{token}_compare.md"
         return path.exists() and not is_file_empty(path)
-

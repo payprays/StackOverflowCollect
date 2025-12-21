@@ -35,6 +35,7 @@ def run_batch_evaluate(
     input_csv: Optional[str | Path] = None,
     output_csv: Optional[str | Path] = None,
     modules: Optional[Sequence[str]] = None,
+    no_reference: bool = False,
 ) -> None:
     """Run evaluation on all LLM answers in the directory."""
     # Normalize modules
@@ -42,9 +43,9 @@ def run_batch_evaluate(
         enabled_modules = {"lint", "coverage", "llm-eval", "compare"}
     else:
         enabled_modules = set(modules)
-    
+
     logger.info("🧩 Enabled evaluation modules: %s", ", ".join(sorted(enabled_modules)))
-    
+
     base = Path(out_dir)
     http_client = session or httpx.Client(timeout=httpx.Timeout(60.0), http2=False)
 
@@ -59,6 +60,7 @@ def run_batch_evaluate(
 
     if input_csv:
         from src.utils.csv_loader import load_questions_from_csv
+
         iterator = load_questions_from_csv(Path(input_csv), base)
     else:
         iterator = load_questions_from_dir(base, reverse=reverse, skip=skip)
@@ -85,6 +87,7 @@ def run_batch_evaluate(
                     model,
                     csv_mode,
                     enabled_modules,
+                    no_reference,
                 )
             )
             processed += 1
@@ -99,7 +102,7 @@ def run_batch_evaluate(
             completed += 1
 
         logger.info("🏁 Evaluate complete: %d/%d items processed", completed, processed)
-        
+
         # Print Coverage Summary (only if coverage module was enabled)
         if store.out_csv and "coverage" in enabled_modules:
             _print_coverage_summary(store.out_csv, model)
@@ -114,11 +117,12 @@ def _process_evaluation(
     model: str,
     csv_mode: bool = False,
     enabled_modules: Optional[set] = None,
+    no_reference: bool = False,
 ) -> None:
     """Process a single question through enabled evaluation modules."""
     if enabled_modules is None:
         enabled_modules = {"lint", "coverage", "llm-eval", "compare"}
-    
+
     try:
         # Get LLM and human answer content
         llm_answer_content = ""
@@ -142,7 +146,8 @@ def _process_evaluation(
         if not llm_answer_content:
             logger.warning(
                 "⚠️ [%s] No LLM answer found (model: %s), skipping",
-                topic_dir.name.split("_")[0], model,
+                topic_dir.name.split("_")[0],
+                model,
             )
             return
 
@@ -154,6 +159,7 @@ def _process_evaluation(
         # 1. Lint module
         if "lint" in enabled_modules:
             from src.evaluate.lint import run_lint
+
             lint_result, _, _ = run_lint(
                 llm_answer_content, store, topic_dir, question, model
             )
@@ -163,22 +169,38 @@ def _process_evaluation(
         if "coverage" in enabled_modules:
             if human_answer_content:
                 from src.evaluate.coverage import run_coverage
+
                 coverage_results = run_coverage(
-                    human_answer_content, llm_answer_content,
-                    evaluator, store, topic_dir, question, model
+                    human_answer_content,
+                    llm_answer_content,
+                    evaluator,
+                    store,
+                    topic_dir,
+                    question,
+                    model,
                 )
                 if coverage_results:
-                    logger.info("✅ [%s] Coverage saved: %s%%", 
-                               q_name, coverage_results.get('coverage_percentage', 0))
+                    logger.info(
+                        "✅ [%s] Coverage saved: %s%%",
+                        q_name,
+                        coverage_results.get("coverage_percentage", 0),
+                    )
             else:
                 logger.warning("⚠️ [%s] No human answer for coverage check", q_name)
 
         # 3. LLM Eval module
         if "llm-eval" in enabled_modules:
             from src.evaluate.llm_eval import run_llm_eval
+
             result = run_llm_eval(
-                question, human_answer_content, llm_answer_content,
-                evaluator, store, topic_dir, model, force
+                question,
+                human_answer_content,
+                llm_answer_content,
+                evaluator,
+                store,
+                topic_dir,
+                model,
+                force,
             )
             if result:
                 logger.info("✅ [%s] Evaluation saved", q_name)
@@ -187,23 +209,49 @@ def _process_evaluation(
 
         # 4. Compare module - compare all LLM answers against reference
         if "compare" in enabled_modules:
-            if human_answer_content:
-                from src.evaluate.compare import run_compare, find_llm_answers
-                
+            if human_answer_content or no_reference:
+                from src.evaluate.compare import (
+                    run_compare,
+                    find_llm_answers,
+                    save_compare_prompt_only,
+                )
+
                 # Find all available LLM answers
                 llm_answers = find_llm_answers(store, topic_dir, question, csv_mode)
-                
+
                 if len(llm_answers) >= 1:
+                    # Always save prompt for manual use
+                    save_compare_prompt_only(
+                        question,
+                        human_answer_content if not no_reference else "",
+                        llm_answers,
+                        topic_dir,
+                        model,
+                        no_reference=no_reference,
+                    )
+
                     if force or not store.has_comparison(topic_dir, model):
-                        logger.info("🔄 [%s] Comparing %d LLM answers...", q_name, len(llm_answers))
+                        logger.info(
+                            "🔄 [%s] Comparing %d LLM answers...",
+                            q_name,
+                            len(llm_answers),
+                        )
                         result = run_compare(
-                            question, human_answer_content, llm_answers,
-                            evaluator, store, topic_dir, model
+                            question,
+                            human_answer_content if not no_reference else "",
+                            llm_answers,
+                            evaluator,
+                            store,
+                            topic_dir,
+                            model,
+                            no_reference=no_reference,
                         )
                         if result:
                             logger.info("✅ [%s] Comparison saved", q_name)
                     else:
-                        logger.info("⏭️ [%s] Comparison already exists, skipping", q_name)
+                        logger.info(
+                            "⏭️ [%s] Comparison already exists, skipping", q_name
+                        )
                 else:
                     logger.warning("⚠️ [%s] Not enough LLM answers to compare", q_name)
             else:
@@ -218,10 +266,10 @@ def _print_coverage_summary(csv_path: Path, model: str) -> None:
     try:
         if not csv_path.exists():
             return
-            
+
         df = pd.read_csv(csv_path)
         col_name = f"{model_token(model)}_Coverage"
-        
+
         if col_name not in df.columns:
             logger.warning("No coverage column '%s' found in results.", col_name)
             return
@@ -236,20 +284,20 @@ def _print_coverage_summary(csv_path: Path, model: str) -> None:
                     coverages.append(float(match.group(1)))
                 except:
                     pass
-                    
+
         if not coverages:
             logger.info("No valid coverage data found.")
             return
-            
+
         avg = sum(coverages) / len(coverages)
         max_cov = max(coverages)
         min_cov = min(coverages)
-        
+
         full = sum(1 for c in coverages if c == 100)
         high = sum(1 for c in coverages if 90 <= c < 100)
         medium = sum(1 for c in coverages if 60 <= c < 90)
         low = sum(1 for c in coverages if c < 60)
-        
+
         print("\n" + "=" * 60)
         print("COMPARISON RESULT STATISTICS")
         print("=" * 60)
@@ -260,11 +308,11 @@ def _print_coverage_summary(csv_path: Path, model: str) -> None:
         print(f"Min Coverage: {min_cov:.2f}%")
         print()
         print("Coverage Distribution:")
-        print(f"  100%:    {full} ({full/len(coverages)*100:.1f}%)")
-        print(f"  90-99%:  {high} ({high/len(coverages)*100:.1f}%)")
-        print(f"  60-89%:  {medium} ({medium/len(coverages)*100:.1f}%)")
-        print(f"  <60%:    {low} ({low/len(coverages)*100:.1f}%)")
+        print(f"  100%:    {full} ({full / len(coverages) * 100:.1f}%)")
+        print(f"  90-99%:  {high} ({high / len(coverages) * 100:.1f}%)")
+        print(f"  60-89%:  {medium} ({medium / len(coverages) * 100:.1f}%)")
+        print(f"  <60%:    {low} ({low / len(coverages) * 100:.1f}%)")
         print("=" * 60)
-        
+
     except Exception as e:
         logger.warning("Could not print coverage summary: %s", e)

@@ -19,6 +19,7 @@ yaml_blocks/
 # Links
 autoValid
 evaluationCoverage
+configFM
 
 # IDE files
 .vscode/

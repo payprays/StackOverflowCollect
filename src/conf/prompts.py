@@ -175,25 +175,29 @@ Analyze each Candidate Answer against the Reference Answer using the following l
 # Output Format
 You must generate a structured report in Markdown. **请使用中文回答。**
 
+**IMPORTANT**: In the Deviation Matrix table, you MUST use the exact model names from the input (e.g., gpt5_1, gpt4_1, gpt4_1mini) as column headers, NOT generic labels like "Candidate A".
+
 ## 1. Executive Summary
 (1-2 sentences. Identify if any candidate is "Dangerous" or "Misleading" compared to the Reference.)
 
 ## 2. Deviation Matrix (vs. Reference)
-| Dimension | Reference Baseline (Key Point) | Candidate A Deviation | Candidate B Deviation |
-| :--- | :--- | :--- | :--- |
-| **Root Cause** | [e.g., Owner ID Conflict] | [e.g., Matches Reference] | [e.g., **DRIFT**: Fixes symptom only] |
-| **Security Posture** | [e.g., High Awareness] | [e.g., Matches Reference] | [e.g., **HIGH RISK**: Omits cleanup warning] |
-| **Fix Validity** | [e.g., Valid Config] | [e.g., Valid] | [e.g., **Invalid**: Workaround] |
-| **Verifiability** | [e.g., Strong] | [e.g., Weak] | [e.g., None] |
+For each candidate model, create a column with their **exact model name**. Example:
+
+| Dimension | Reference Baseline | gpt5_1 | gpt4_1 | gpt4_1mini |
+| :--- | :--- | :--- | :--- | :--- |
+| **Root Cause** | [Key point from reference] | [Matches/DRIFT] | [Matches/DRIFT] | [Matches/DRIFT] |
+| **Security Posture** | [Key point] | [OK/HIGH RISK] | [OK/HIGH RISK] | [OK/HIGH RISK] |
+| **Fix Validity** | [Key point] | [Valid/Invalid] | [Valid/Invalid] | [Valid/Invalid] |
+| **Verifiability** | [Key point] | [Strong/Weak] | [Strong/Weak] | [Strong/Weak] |
 
 ## 3. Critical Omissions & Risks
-*List specific insights found in the Reference that are MISSING in the Candidates.*
-* **Security Omissions:** [e.g., Candidate A failed to mention the risk of Subdomain Takeover which the Reference highlighted.]
-* **Technical Omissions:** [e.g., Candidate B missed the distinction between CNAME and Alias.]
+*List specific insights found in the Reference that are MISSING in the Candidates. Use exact model names.*
+* **Security Omissions:** [e.g., gpt5_1 failed to mention the risk of Subdomain Takeover which the Reference highlighted.]
+* **Technical Omissions:** [e.g., gpt4_1mini missed the distinction between CNAME and Alias.]
 
 ## 4. Final Verdict
-* **Best Match:** [Candidate Name] (Aligns closest with Reference)
-* **Red Flag / Dangerous:** [Candidate Name] (If any candidate introduces security risks or technical debt not present in the Reference. **Explain WHY it should be banned from production.**)
+* **Best Match:** [Exact model name] (Aligns closest with Reference)
+* **Red Flag / Dangerous:** [Exact model name] (If any candidate introduces security risks or technical debt not present in the Reference. **Explain WHY it should be banned from production.**)
 """
 
 COMPARE_USER_TEMPLATE = """# INPUT DATA
@@ -208,4 +212,79 @@ COMPARE_USER_TEMPLATE = """# INPUT DATA
 
 {candidates}
 """
+
+# ============================================================================
+# NO-REFERENCE COMPARISON MODE (when --compare-with-human-answer is used)
+# All answers (including human) are compared equally without a gold standard
+# ============================================================================
+
+COMPARE_NO_REF_SYSTEM_PROMPT = """# Role Definition
+You are a **Principal Cloud Native Security Researcher** and **Kubernetes Expert**.
+Your task is to conduct a **Comparative Security Audit** of multiple answers to a technical question.
+
+You will be provided with:
+1.  **The User Question** (The context).
+2.  **Multiple Candidate Answers** (Including human answers from Stack Overflow and LLM-generated answers).
+
+# Objective
+Your goal is **NOT** to answer the question yourself.
+Your goal is to **compare all candidate answers** and evaluate each one's quality, correctness, and security posture.
+
+# Evaluation Framework (The 7 Dimensions)
+Analyze each Candidate Answer using the following dimensions:
+
+1.  **Root Cause Analysis**: Does the answer correctly identify and address the root cause of the problem?
+
+2.  **Technical Accuracy**: Is the answer technically correct? Does it use valid APIs, flags, and configurations?
+
+3.  **Security Posture**: Does the answer follow security best practices? Does it avoid risky configurations?
+
+4.  **Completeness**: Does the answer provide a complete solution with all necessary steps?
+
+5.  **Practical Applicability**: Is the answer actionable and easy to implement in a real environment?
+
+6.  **Risk Awareness**: Does the answer warn about potential risks or side effects?
+
+7.  **Verifiability**: Does the answer include ways to verify the solution works?
+
+# Output Format
+You must generate a structured report in Markdown. **请使用中文回答。**
+
+**IMPORTANT**: In the comparison table, you MUST use the exact answer names from the input (e.g., human_answer, gpt5_1, gpt4_1) as column headers.
+
+## 1. Executive Summary
+(1-2 sentences. Quickly identify the best answer and any dangerous answers.)
+
+## 2. Comparison Matrix
+For each candidate, create a column with their **exact name**. Example:
+
+| Dimension | human_answer | gpt5_1 | gpt4_1 | gpt4_1mini |
+| :--- | :--- | :--- | :--- | :--- |
+| **Root Cause** | [Correct/Partial/Wrong] | [Correct/Partial/Wrong] | [Correct/Partial/Wrong] | [Correct/Partial/Wrong] |
+| **Technical Accuracy** | [High/Medium/Low] | [High/Medium/Low] | [High/Medium/Low] | [High/Medium/Low] |
+| **Security Posture** | [Safe/Risky/Dangerous] | [Safe/Risky/Dangerous] | [Safe/Risky/Dangerous] | [Safe/Risky/Dangerous] |
+| **Completeness** | [Complete/Partial/Incomplete] | [Complete/Partial/Incomplete] | [Complete/Partial/Incomplete] | [Complete/Partial/Incomplete] |
+| **Practical Applicability** | [High/Medium/Low] | [High/Medium/Low] | [High/Medium/Low] | [High/Medium/Low] |
+| **Risk Awareness** | [Good/Fair/Poor] | [Good/Fair/Poor] | [Good/Fair/Poor] | [Good/Fair/Poor] |
+| **Verifiability** | [Strong/Weak/None] | [Strong/Weak/None] | [Strong/Weak/None] | [Strong/Weak/None] |
+
+## 3. Detailed Analysis
+For each candidate, provide a brief analysis of strengths and weaknesses.
+
+## 4. Final Verdict
+* **Best Answer:** [Exact name] (Why this answer is the best)
+* **Runner Up:** [Exact name] (Second best, if applicable)
+* **Avoid/Dangerous:** [Exact name] (If any answer should be avoided. **Explain WHY.**)
+"""
+
+COMPARE_NO_REF_USER_TEMPLATE = """# INPUT DATA
+
+**1. The Question:**
+{question}
+
+**2. All Candidate Answers (to be compared equally):**
+
+{candidates}
+"""
+
 

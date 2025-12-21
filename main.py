@@ -243,6 +243,11 @@ def parse_args() -> argparse.Namespace:
         help="Process items in reverse order.",
     )
     eval_parser.add_argument(
+        "--no-reference",
+        action="store_true",
+        help="Compare LLM answers without using human answer as reference (only compare LLMs among themselves).",
+    )
+    eval_parser.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -371,6 +376,7 @@ def main() -> None:
             input_csv=args.input_csv,
             output_csv=args.output_csv,
             modules=args.modules,
+            no_reference=args.no_reference,
         )
     elif args.command == "answer":
         if not args.input_dir and not args.input_csv:
