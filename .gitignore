@@ -13,7 +13,12 @@ wheels/
 # data
 data/
 result_report.md
+*.csv
+yaml_blocks/
+
+# Links
 autoValid
+evaluationCoverage
 
 # IDE files
 .vscode/
